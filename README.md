@@ -58,4 +58,4 @@ Every message begins with a <i>header</i>, which consists of:
 - 1 byte unsigned integer <i>message type</i> indicating what the message format (corresponding to `messageFormat id` in the XML)
 - 4 byte unsigned integer <i>bitmask</i> bitmask which, in big endian, indicates which, if any, of the optional fields are present
 
-After the header, the message consists of the present fields in order of listing in the XML, as indicated by the bitmask.
+After the header, the message consists of the fields in order of appearance in the XML which are indicated as present by the bitmask.
