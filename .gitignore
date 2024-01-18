@@ -3,3 +3,4 @@ target/
 venv/
 runner/
 src/lib.rs
+.DS_Store
