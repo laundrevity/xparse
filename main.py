@@ -60,6 +60,19 @@ impl Header {
 
 """
 
+def get_test_value(rust_type: str) -> str:
+    if rust_type[0] in ('i', 'u'):
+        return '1234'
+    elif rust_type == 'bool':
+        return 'true'
+    elif rust_type.startswith('[char;'):
+        return f"""string_to_char_array("John Doe").unwrap()"""
+    elif rust_type.startswith('Option'):
+        inner_type = rust_type[rust_type.index('<')+1:-1]
+        return f"""Some({get_test_value(inner_type)})"""
+    else:
+        raise Exception(f"Unknown Rust type for get_test_value: {rust_type}")
+
 def parse_xml_schema(xml_file: str):
     tree = ET.parse(xml_file)
     root = tree.getroot()
@@ -324,7 +337,62 @@ def generate_rust_code_for_schema(message_formats) -> str:
 
     # end Message impl
     code += f"""}}"""
+
+    # begin tests
+    code += r"""#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_header_serialization() {
+        let header = Header {
+            msg_size: 23,
+            msg_type: 1,
+            bitmask: 33, // Example bitmask (1 << 0 | 1 << 5)
+        };
+
+        let serialized = header.to_bytes();
+        let deserialized = Header::from_bytes(&serialized);
+
+        assert_eq!(header, deserialized);
+    }
+
+    #[test]
+    fn test_header_fields() {
+        let header = Header {
+            msg_size: 100,
+            msg_type: 2,
+            bitmask: 18, // Example bitmask (1 << 1 | 1 << 4)
+        };
+
+        assert_eq!(header.msg_size, 100);
+        assert_eq!(header.msg_type, 2);
+        assert_eq!(header.bitmask, 18);
+    }
+
+"""
+    for message_format in schema:
+        code += f"""\t#[test]\n"""
+        name = message_format['name']
+        code += f"""\tfn test_{name}_serialize_deserialize() {{\n"""
+
+        code += f"""\t\tlet message_original = Message::{name.capitalize()}({name.capitalize()} {{\n"""
+        for attrib in message_format['attributes']:
+            print(f"{message_format=}, {attrib=}")
+            code += f"""\t\t\t{attrib['name']}: {get_test_value(get_rust_type(attrib))},\n"""
+        code += f"""\t\t}});\n\n"""
+
+        code += f"""\t\tlet message_bytes = message_original.serialize();\n"""
+        code += f"""\t\tlet message_result = Message::deserialize(&message_bytes).unwrap();\n\n"""
+        code += f"""\t\t assert_eq!(message_original, message_result);\n"""
+
+        code += f"""\t}}\n\n"""
+
+
+    code += f"""}}\n"""
+
     return code
+
 
 
 if __name__ == "__main__":
