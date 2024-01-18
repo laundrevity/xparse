@@ -12,7 +12,7 @@
             <attribute name="age" type="uint" length="2" required="false"/>
             <attribute name="city" type="str" length="15" required="false"/>
             <attribute name="is_student" type="bool" length="1" required="true"/>
-            <attribute name="person_role" type="role" required="true"/> 
+            <attribute name="person_role" type="role" required="false"/> 
         </messageFormat>
 
         <messageFormat id="2" name="employee">

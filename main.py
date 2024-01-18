@@ -61,7 +61,7 @@ impl Header {
 """
 
 
-def get_test_value(rust_type: str) -> str:
+def get_test_value(rust_type: str, enum_schema) -> str:
     if rust_type[0] == "i":
         return "-123"
     elif rust_type[0] == "u":
@@ -72,9 +72,12 @@ def get_test_value(rust_type: str) -> str:
         return f"""string_to_char_array("John Doe").unwrap()"""
     elif rust_type.startswith("Option"):
         inner_type = rust_type[rust_type.index("<") + 1 : -1]
-        return f"""Some({get_test_value(inner_type)})"""
+        return f"""Some({get_test_value(inner_type, enum_schema)})"""
     elif rust_type[0] == "f":
         return "3.14"
+    elif rust_type.lower() in enum_schema:
+        variant = list(enum_schema[rust_type.lower()].keys())[0].capitalize()
+        return f"{rust_type}::{variant}"
     else:
         raise Exception(f"Unknown Rust type for get_test_value: {rust_type}")
 
@@ -119,9 +122,13 @@ def generate_rust_code_for_schema(schema) -> str:
     code = HEADER_AND_UTIL_CODE
 
     def get_rust_type(attribute) -> str:
-        base_type, length, optional = (
+        if attribute.get('length') is None:
+            length = 1
+        else:
+            length = int(attribute.get('length'))
+
+        base_type, optional = (
             attribute["type"],
-            int(attribute["length"]),
             not attribute["required"],
         )
         inner_type = ""
@@ -135,7 +142,8 @@ def generate_rust_code_for_schema(schema) -> str:
             inner_type = "bool"
         elif base_type == "str":
             inner_type = f"[char; {length}]"
-
+        else: # assume Enum here
+            inner_type = base_type.capitalize()
         if optional:
             return f"Option<{inner_type}>"
         else:
@@ -152,13 +160,19 @@ def generate_rust_code_for_schema(schema) -> str:
             return 1
         elif rust_type.startswith("Option<"):
             return get_rust_num_bytes(rust_type[rust_type.index("<") + 1 : -1])
+        else: # assume enum
+            return 1
 
-    def get_serialization_code(att, rust_type: str, omit_self=False) -> str:
+    def get_serialization_code(att, rust_type: str, enum_schema, omit_self=False) -> str:
         code = ""
         if rust_type.startswith("Option<"):
             inner_type = rust_type[rust_type.index("<") + 1 : -1]
             # [:-1] at end to exclude semicolon inside match arm
-            return f"""\t\tmatch self.{att} {{\n\t\t\tSome({att}) => {get_serialization_code(att, inner_type, omit_self=True)[:-1]},\n\t\t\t_ => {{}}\n\t\t}}"""
+            if inner_type.lower() in enum_schema:
+                extra = "&"
+            else:
+                extra = ""
+            return f"""\t\tmatch {extra}self.{att} {{\n\t\t\tSome({att}) => {get_serialization_code(att, inner_type, enum_schema, omit_self=True)[:-1]},\n\t\t\t_ => {{}}\n\t\t}}"""
         else:
             if not omit_self:
                 self_string = "self."
@@ -173,8 +187,10 @@ def generate_rust_code_for_schema(schema) -> str:
                 return f"""{tab_string}buf.push(if {self_string}{att} {{ 1 }} else {{ 0 }});"""
             elif rust_type.startswith("[char;"):
                 return f"""{tab_string}buf.append({self_string}{att}.iter().map(|&c| c as u8).collect::<Vec<u8>>().as_mut());"""
+            else: # assume Enum variant
+                return f"""{tab_string}buf.push({self_string}{att}.to_u8());"""
 
-        return code
+
 
     def get_bitmask_code(attribute_rust_types) -> str:
         code = "\t\tlet mut mask: u32 = 0;\n\n"
@@ -228,6 +244,11 @@ def generate_rust_code_for_schema(schema) -> str:
                     code += f"""\t\t\toffset += {n};\n"""
                     code += f"""\t\t\tSome({att_name}_value)\n"""
 
+                else: # assume Enum
+                    code += f"""\t\t\tlet {att_name}_value = {inner_rust_type}::from_u8(buffer[offset]).map_err(|_| "Invalid buffer: {att_name}")?;\n"""
+                    code += f"""\t\t\toffset += 1;\n"""
+                    code += f"""\t\t\tSome({att_name}_value)\n"""
+
                 code += f"""\t\t}} else {{\n\t\t\tNone\n\t\t}};\n\n"""
 
             else:
@@ -244,6 +265,9 @@ def generate_rust_code_for_schema(schema) -> str:
 
                 elif rust_type == "bool":
                     code += f"""\t\tlet {att_name} = buffer[offset] != 0;\n"""
+                
+                else: # assume Enum
+                    code += f"""\t\tlet {att_name} = {rust_type}::from_u8(buffer[offset]).map_err(|_| "Invalid buffer: {att_name}")?;"""
 
                 code += f"""\t\toffset += {n};\n\n"""
 
@@ -257,8 +281,37 @@ def generate_rust_code_for_schema(schema) -> str:
     enums_schema = schema[0]
     message_formats_schema = schema[1]
 
+    # Generate code for Enum definitions and implementations 
+    for enum_name in enums_schema:
+        code += f"""#[derive(PartialEq, Debug)]\n"""
+        code += f"""pub enum {enum_name.capitalize()} {{\n"""
+
+        for variant_name, variant_value in enums_schema[enum_name].items():
+            code += f"""\t{variant_name.capitalize()} = {int(variant_value)},\n"""
+        
+        code += f"""}}\n\n"""
+
+        code += f"""impl {enum_name.capitalize()} {{\n"""
+
+        code += f"""\tpub fn from_u8(value: u8) -> Result<Self, &'static str> {{\n"""
+        code += f"""\t\tmatch value {{\n"""
+        for variant_name, variant_value in enums_schema[enum_name].items():
+            code += f"""\t\t\t{int(variant_value)} => Ok({enum_name.capitalize()}::{variant_name.capitalize()}),\n"""
+        code += f"""\t\t\t_ => Err("Invalid value for enum {enum_name.capitalize()}"),\n"""
+        code += f"""\t\t}}\n"""
+        code += f"""\t}}\n\n"""
+
+        code += f"""\tpub fn to_u8(&self) -> u8 {{\n"""
+        code += f"""\t\tmatch self {{\n"""
+        for variant_name, variant_value in enums_schema[enum_name].items():
+            code += f"""\t\t\t{enum_name.capitalize()}::{variant_name.capitalize()} => {int(variant_value)},\n"""
+        code += f"""\t\t}}\n"""
+        code += f"""\t}}\n\n"""
+
+        code += f"""}}\n\n"""
+
+
     for message_format in message_formats_schema:
-        print(f"{message_format=}")
         code += f"""#[derive(PartialEq, Debug)]\npub struct {message_format['name'].capitalize()} {{\n"""
         attribute_rust_types = []
         for attribute in message_format["attributes"]:
@@ -287,7 +340,7 @@ def generate_rust_code_for_schema(schema) -> str:
         code += f"""\t\tlet mut buf: Vec<u8> = Vec::with_capacity({name}::max_payload_size());\n\n"""
 
         for att, rust_type in attribute_rust_types:
-            code += f"{get_serialization_code(att, rust_type)}\n\n"
+            code += f"{get_serialization_code(att, rust_type, enums_schema)}\n\n"
 
         # end serialize
         code += """\n\t\tbuf\n\t}\n\n"""
@@ -302,7 +355,7 @@ def generate_rust_code_for_schema(schema) -> str:
         code += "}\n\n"
 
     code += f"""#[derive(PartialEq, Debug)]\npub enum Message {{\n"""
-    for message_format in schema:
+    for message_format in message_formats_schema:
         name = message_format["name"].capitalize()
         code += f"    {name}({name}),\n"
     code += "}\n\n"
@@ -313,7 +366,7 @@ def generate_rust_code_for_schema(schema) -> str:
     # begin Message::serialize
     code += f"""\tpub fn serialize(&self) -> Vec<u8> {{\n"""
     code += f"""\t\tlet mut buffer = match self {{\n"""
-    for message_format in schema:
+    for message_format in message_formats_schema:
         code += f"""\t\t\tMessage::{message_format['name'].capitalize()}(p) => p.serialize(),\n"""
     code += f"""\t\t}};\n\n"""
 
@@ -321,7 +374,7 @@ def generate_rust_code_for_schema(schema) -> str:
     code += f"""\t\tlet header = Header {{\n"""
     code += f"""\t\t\tmsg_size: buffer.len() as u32 + 9, // +9 for header size\n"""
     code += f"""\t\t\tmsg_type: match self {{\n"""
-    for i, message_format in enumerate(schema):
+    for i, message_format in enumerate(message_formats_schema):
         code += (
             f"""\t\t\t\tMessage::{message_format['name'].capitalize()}(_) => {i+1},\n"""
         )
@@ -339,7 +392,7 @@ def generate_rust_code_for_schema(schema) -> str:
     # Message::get_bitmask
     code += f"""\tfn get_bitmask(&self) -> u32 {{\n"""
     code += f"""\t\tmatch self {{\n"""
-    for message_format in schema:
+    for message_format in message_formats_schema:
         code += f"""\t\t\tMessage::{message_format['name'].capitalize()}(p) => p.get_bitmask(),\n"""
     code += f"""\t\t}}\n"""
     code += f"""\t}}\n\n"""
@@ -349,7 +402,7 @@ def generate_rust_code_for_schema(schema) -> str:
         f"""\tpub fn deserialize(buffer: &[u8]) -> Result<Self, &'static str> {{\n"""
     )
     code += f"""\t\tmatch buffer[4] {{\n"""
-    for i, message_format in enumerate(schema):
+    for i, message_format in enumerate(message_formats_schema):
         name = message_format["name"]
         code += (
             f"""\t\t\t{i+1} => match {name.capitalize()}::deserialize(buffer) {{\n"""
@@ -398,14 +451,14 @@ mod tests {
     }
 
 """
-    for message_format in schema:
+    for message_format in message_formats_schema:
         code += f"""\t#[test]\n"""
         name = message_format["name"]
         code += f"""\tfn test_{name}_serialize_deserialize() {{\n"""
 
         code += f"""\t\tlet message_original = Message::{name.capitalize()}({name.capitalize()} {{\n"""
         for attrib in message_format["attributes"]:
-            code += f"""\t\t\t{attrib['name']}: {get_test_value(get_rust_type(attrib))},\n"""
+            code += f"""\t\t\t{attrib['name']}: {get_test_value(get_rust_type(attrib), enums_schema)},\n"""
         code += f"""\t\t}});\n\n"""
 
         code += f"""\t\tlet message_bytes = message_original.serialize();\n"""
