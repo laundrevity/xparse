@@ -1,6 +1,64 @@
 import xml.etree.ElementTree as ET
 import json
 
+HEADER_AND_UTIL_CODE = r"""use arrayref::array_ref;
+
+pub fn string_to_char_array<const N: usize>(s: &str) -> Result<[char; N], &'static str> {
+    if s.len() > N {
+        return Err("String is too long");
+    }
+
+    let mut char_vec: Vec<char> = s.chars().collect();
+    while char_vec.len() < N {
+        char_vec.push(' '); // Fill the remaining spaces with a default character
+    }
+
+    // Attempt to convert Vec<char> into [char; N]
+    let char_array: [char; N] = char_vec
+        .try_into()
+        .map_err(|_| "Failed to convert to array")?;
+    Ok(char_array)
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Header {
+    pub msg_size: u32,
+    pub msg_type: u8,
+    pub bitmask: u32,
+}
+
+impl Header {
+    pub fn to_bytes(&self) -> [u8; 9] {
+        let size_bytes = self.msg_size.to_be_bytes();
+        let mask_bytes = self.bitmask.to_be_bytes();
+
+        [
+            size_bytes[0],
+            size_bytes[1],
+            size_bytes[2],
+            size_bytes[3],
+            self.msg_type,
+            mask_bytes[0],
+            mask_bytes[1],
+            mask_bytes[2],
+            mask_bytes[3],
+        ]
+    }
+
+    pub fn from_bytes(buffer: &[u8; 9]) -> Self {
+        let msg_size = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+        let msg_type = buffer[4];
+        let bitmask = u32::from_be_bytes([buffer[5], buffer[6], buffer[7], buffer[8]]);
+
+        Self {
+            msg_size,
+            msg_type,
+            bitmask,
+        }
+    }
+}
+
+"""
 
 def parse_xml_schema(xml_file: str):
     tree = ET.parse(xml_file)
@@ -30,64 +88,7 @@ def parse_xml_schema(xml_file: str):
 
 
 def generate_rust_code_for_schema(message_formats) -> str:
-    code = r"""use arrayref::array_ref;
-
-fn string_to_char_array<const N: usize>(s: &str) -> Result<[char; N], &'static str> {
-    if s.len() > N {
-        return Err("String is too long");
-    }
-
-    let mut char_vec: Vec<char> = s.chars().collect();
-    while char_vec.len() < N {
-        char_vec.push(' '); // Fill the remaining spaces with a default character
-    }
-
-    // Attempt to convert Vec<char> into [char; N]
-    let char_array: [char; N] = char_vec
-        .try_into()
-        .map_err(|_| "Failed to convert to array")?;
-    Ok(char_array)
-}
-
-#[derive(Debug, PartialEq)]
-struct Header {
-    msg_size: u32,
-    msg_type: u8,
-    bitmask: u32,
-}
-
-impl Header {
-    fn to_bytes(&self) -> [u8; 9] {
-        let size_bytes = self.msg_size.to_be_bytes();
-        let mask_bytes = self.bitmask.to_be_bytes();
-
-        [
-            size_bytes[0],
-            size_bytes[1],
-            size_bytes[2],
-            size_bytes[3],
-            self.msg_type,
-            mask_bytes[0],
-            mask_bytes[1],
-            mask_bytes[2],
-            mask_bytes[3],
-        ]
-    }
-
-    fn from_bytes(buffer: &[u8; 9]) -> Self {
-        let msg_size = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
-        let msg_type = buffer[4];
-        let bitmask = u32::from_be_bytes([buffer[5], buffer[6], buffer[7], buffer[8]]);
-
-        Self {
-            msg_size,
-            msg_type,
-            bitmask,
-        }
-    }
-}
-
-"""
+    code = HEADER_AND_UTIL_CODE
 
     def get_rust_type(attribute) -> str:
         base_type, length, optional = (
@@ -154,28 +155,6 @@ impl Header {
         
         code += f"""\t\tmask\n\t}}"""
         return code
-    
-    # # non-optional type! handle the optionality in get_deserialization_code
-    # def get_deserialization_code_for_type(att_name, rust_type: str, inner=False) -> str:
-    #     code = ""
-    #     n = get_rust_num_bytes(rust_type)
-
-    #     if rust_type[0] in ('i', 'u'):
-    #         code += f"""{rust_type}::from_be_bytes(buffer[offset..offset + {n}].try_into().map_err(|_| "Invalid buffer: {att_name})?);\n"""
-
-    #     elif rust_type == 'bool':
-    #         code += f"""buffer[offset] != 0;\n"""
-
-    #     elif rust_type.startswith('[char;'):
-    #         code += f""""""
-
-    #     if inner:
-    #         tab_string = f"""\t\t\t"""
-    #     else:
-    #         tab_string = f"""\t\t"""
-    #     code += f"""{tab_string}offset += {n};"""
-
-    #     return code
 
     def get_deserialization_code(attribute_rust_types) -> str:
         code = f"""\tfn deserialize(buffer: &[u8]) -> Result<Self, &'static str> {{\n"""
@@ -184,37 +163,75 @@ impl Header {
         code += f"""\t\tlet header = Header::from_bytes(array_ref![buffer, 0, 9]);\n"""
         code += f"""\t\tlet mut offset = 9;\n\n"""
 
+        ok_code = f"""\t\tOk(Self {{\n"""
+
         opt_cnt = 0
 
         for att_name, rust_type in attribute_rust_types:
+            ok_code += f"""\t\t\t{att_name},\n"""
             if rust_type.startswith('Option'):
                 inner_rust_type = rust_type[rust_type.index('<')+1:-1]
-                
+                n = get_rust_num_bytes(inner_rust_type)
+
                 code += f"""\t\tlet {att_name} = if header.bitmask & (1 << {opt_cnt}) != 0 {{\n"""
                 opt_cnt += 1
 
                 if inner_rust_type.startswith('[char;'):
-                    n = get_rust_num_bytes(inner_rust_type)
                     code += f"""\t\t\tlet mut {att_name}_chars = [' '; {n}];\n"""
                     code += f"""\t\t\tfor i in 0..{n} {{\n"""
                     code += f"""\t\t\t\t{att_name}_chars[i] = buffer[offset + i] as char;\n"""
                     code += f"""\t\t\t}}\n"""
+
+                    code += f"""\t\t\toffset += {n};\n"""
+                    code += f"""\t\t\tSome({att_name}_chars)\n"""
             
-            else:
-                pass
+                elif inner_rust_type[0] in ('i', 'u'):
+                    code += f"""\t\t\tlet {att_name}_value = {inner_rust_type}::from_be_bytes(buffer[offset..offset + {n}].try_into().map_err(|_| "Invalid buffer: {att_name}")?);\n"""
                 
+                    code += f"""\t\t\toffset += {n};\n"""
+                    code += f"""\t\t\tSome({att_name}_value)\n"""
+
+                elif inner_rust_type[0] == 'bool':
+                    code += f"""\t\t\tlet {att_name}_value = buffer[offset] != 0;"""
+
+                    code += f"""\t\t\toffset += {n};\n"""
+                    code += f"""\t\t\tSome({att_name}_value)\n"""
+                
+                code += f"""\t\t}} else {{\n\t\t\tNone\n\t\t}};\n\n"""
+
+            else:
+                n = get_rust_num_bytes(rust_type)
+
+                if rust_type.startswith('[char;'):
+                    code += f"""\t\tlet mut {att_name} = [' '; {n}];\n"""
+                    code += f"""\t\tfor i in 0..{n} {{\n"""
+                    code += f"""\t\t\t{att_name}[i] = buffer[offset + i] as char;\n"""
+                    code += f"""\t\t}}\n"""
+                
+                elif rust_type[0] in ('i', 'u'):
+                    code += f"""\t\t let {att_name} = {rust_type}::from_be_bytes(buffer[offset..offset + {n}].try_into().map_err(|_| "Invalid buffer: {att_name}")?);\n"""
+
+                elif rust_type == 'bool':
+                    code += f"""\t\tlet {att_name} = buffer[offset] != 0;\n"""
+
+                code += f"""\t\toffset += {n};\n\n"""
+
+        ok_code += f"""\t\t}})\n"""
+        
+        code += ok_code
 
         code += f"""\t}}"""
         return code
 
+
     for message_format in schema:
-        code += f"""#[derive(PartialEq, Debug)]\nstruct {message_format['name'].capitalize()} {{\n"""
+        code += f"""#[derive(PartialEq, Debug)]\npub struct {message_format['name'].capitalize()} {{\n"""
         attribute_rust_types = []
         for attribute in message_format["attributes"]:
             attribute_rust_types.append([attribute['name'], get_rust_type(attribute)])
 
         for attribute, rust_type in attribute_rust_types:
-            code += f"    {attribute}: {rust_type},\n"
+            code += f"    pub {attribute}: {rust_type},\n"
         code += "}\n\n"
 
         name = message_format["name"].capitalize()
@@ -250,12 +267,63 @@ impl Header {
         # end struct impl
         code += "}\n\n"
 
-    code += f"""#[derive(PartialEq, Debug)]\nenum Message {{\n"""
+    code += f"""#[derive(PartialEq, Debug)]\npub enum Message {{\n"""
     for message_format in schema:
         name = message_format["name"].capitalize()
         code += f"    {name}({name}),\n"
     code += "}\n\n"
 
+    # begin Message impl
+    code += f"""impl Message {{\n"""
+
+    # begin Message::serialize
+    code += f"""\tpub fn serialize(&self) -> Vec<u8> {{\n"""
+    code += f"""\t\tlet mut buffer = match self {{\n"""
+    for message_format in schema:
+        code += f"""\t\t\tMessage::{message_format['name'].capitalize()}(p) => p.serialize(),\n"""
+    code += f"""\t\t}};\n\n"""
+
+    code += f"""\t\t// Create a buffer and prepend it to the buffer\n"""
+    code += f"""\t\tlet header = Header {{\n"""
+    code += f"""\t\t\tmsg_size: buffer.len() as u32 + 9, // +9 for header size\n"""
+    code += f"""\t\t\tmsg_type: match self {{\n"""
+    for i, message_format in enumerate(schema):
+        code += f"""\t\t\t\tMessage::{message_format['name'].capitalize()}(_) => {i+1},\n"""
+    code += f"""\t\t\t}},\n"""
+    code += f"""\t\t\tbitmask: self.get_bitmask(),\n"""
+    code += f"""\t\t}};\n\n"""
+    
+    code += f"""\t\tlet mut header_bytes = header.to_bytes().to_vec();\n"""
+    code += f"""\t\theader_bytes.append(&mut buffer);\n"""
+    code += f"""\t\theader_bytes\n"""
+    
+    # end Message::serialize
+    code += f"""\t}}\n\n"""
+
+    # Message::get_bitmask
+    code += f"""\tfn get_bitmask(&self) -> u32 {{\n"""
+    code += f"""\t\tmatch self {{\n"""
+    for message_format in schema:
+        code += f"""\t\t\tMessage::{message_format['name'].capitalize()}(p) => p.get_bitmask(),\n"""
+    code += f"""\t\t}}\n"""
+    code += f"""\t}}\n\n"""
+
+    # begin Message::deserialize
+    code += f"""\tpub fn deserialize(buffer: &[u8]) -> Result<Self, &'static str> {{\n"""
+    code += f"""\t\tmatch buffer[4] {{\n"""
+    for i, message_format in enumerate(schema):
+        name = message_format['name']
+        code += f"""\t\t\t{i+1} => match {name.capitalize()}::deserialize(buffer) {{\n"""
+        code += f"""\t\t\t\tOk({name}) => Ok(Message::{name.capitalize()}({name})),\n"""
+        code += f"""\t\t\t\tErr(e) => Err(e),\n"""
+        code += f"""\t\t\t}},\n"""
+    code += f"""\t\t\t_ => Err("Unknown message type id"),\n"""
+    code += f"""\t\t}}\n"""
+    # end Message::deserialize
+    code += f"""\t}}\n"""
+
+    # end Message impl
+    code += f"""}}"""
     return code
 
 
@@ -266,5 +334,5 @@ if __name__ == "__main__":
 
     rust_code = generate_rust_code_for_schema(schema)
 
-    with open(f"src/foo.rs", "w") as f:
+    with open(f"src/lib.rs", "w") as f:
         f.write(rust_code)
