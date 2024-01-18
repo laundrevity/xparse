@@ -4,7 +4,7 @@ This project is a tool for generating Rust code to serialize and deserialize cer
 
 This example assumes you have Rust installed (so that `cargo` is in your PATH) and that you have Python3 installed (so that `python3` is in your PATH).
 
-The file `example_schema.xml` contains an example of a set of message formats we could specify:
+The folder `example_schemas` contains some examples of sets of message formats we could specify, e.g. `school.xml`:
 ```xml
 <root>
     <enumTypes>
@@ -42,7 +42,36 @@ The file `example_schema.xml` contains an example of a set of message formats we
 </root>
 ```
 
-The Rust code can be generated via `python3 main.py`, and the tests can be run via `cargo test`.
+or `trading.xml`:
+```xml
+<root>
+    <enumTypes>
+        <enumType name="side">
+            <enumValue name="buy" value="1"/>
+            <enumValue name="sell" value="2"/>
+        </enumType>
+    </enumTypes>
+    <messageFormats>
+        <messageFormat id="1" name="order">
+            <attribute name="order_id" type="uint" length="8" required="true"/>
+            <attribute name="price" type="float" length="8" required="true"/>
+            <attribute name="account_id" type="uint" length="4" required="false"/>
+            <attribute name="quantity" type="uint" length="8" required="true"/>
+            <attribute name="order_side" type="side" required="true"/>
+            <attribute name="instrument_id" type="uint" length="8" required="true"/>
+            <attribute name="symbol" type="str" length="20" required="false"/>
+        </messageFormat>
+        <messageFormat id="2" name="position">
+            <attribute name="quantity" type="int" length="8" required="true"/>
+            <attribute name="account_id" type="uint" length="4" required="false"/>
+            <attribute name="instrument_id" type="uint" length="8" required="true"/>
+            <attribute name="symbol" type="str" length="20" required="false"/>
+        </messageFormat>
+    </messageFormats>
+</root>
+```
+
+The Rust code can be generated via `python3 main.py <PATH TO SCHEMA XML>`, and the tests can be run via `cargo test`.
 
 <h2>Supported message types</h2>
 Presently, only the following message attribute types are supported:
