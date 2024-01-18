@@ -83,9 +83,18 @@ def parse_xml_schema(xml_file: str):
     tree = ET.parse(xml_file)
     root = tree.getroot()
 
-    message_formats = []
+    # Parsing enumTypes
+    enum_types = {}
+    for enumType in root.findall("./enumTypes/enumType"):
+        enum_name = enumType.get("name")
+        enum_values = {
+            ev.get("name"): ev.get("value") for ev in enumType.findall("enumValue")
+        }
+        enum_types[enum_name] = enum_values
 
-    for message_format in root.findall("messageFormat"):
+    # Parsing messageFormats
+    message_formats = []
+    for message_format in root.findall("./messageFormats/messageFormat"):
         format_details = {
             "id": message_format.get("id"),
             "name": message_format.get("name"),
@@ -103,10 +112,10 @@ def parse_xml_schema(xml_file: str):
 
         message_formats.append(format_details)
 
-    return message_formats
+    return enum_types, message_formats
 
 
-def generate_rust_code_for_schema(message_formats) -> str:
+def generate_rust_code_for_schema(schema) -> str:
     code = HEADER_AND_UTIL_CODE
 
     def get_rust_type(attribute) -> str:
@@ -245,7 +254,11 @@ def generate_rust_code_for_schema(message_formats) -> str:
         code += f"""\t}}"""
         return code
 
-    for message_format in schema:
+    enums_schema = schema[0]
+    message_formats_schema = schema[1]
+
+    for message_format in message_formats_schema:
+        print(f"{message_format=}")
         code += f"""#[derive(PartialEq, Debug)]\npub struct {message_format['name'].capitalize()} {{\n"""
         attribute_rust_types = []
         for attribute in message_format["attributes"]:
