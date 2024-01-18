@@ -1,0 +1,25 @@
+<root>
+    <enumTypes>
+        <enumType name="side">
+            <enumValue name="buy" value="1"/>
+            <enumValue name="sell" value="2"/>
+        </enumType>
+    </enumTypes>
+    <messageFormats>
+        <messageFormat id="1" name="order">
+            <attribute name="order_id" type="uint" length="8" required="true"/>
+            <attribute name="price" type="float" length="8" required="true"/>
+            <attribute name="account_id" type="uint" length="4" required="false"/>
+            <attribute name="quantity" type="uint" length="8" required="true"/>
+            <attribute name="order_side" type="side" required="true"/>
+            <attribute name="instrument_id" type="uint" length="8" required="true"/>
+            <attribute name="symbol" type="str" length="20" required="false"/>
+        </messageFormat>
+        <messageFormat id="2" name="position">
+            <attribute name="quantity" type="int" length="8" required="true"/>
+            <attribute name="account_id" type="uint" length="4" required="false"/>
+            <attribute name="instrument_id" type="uint" length="8" required="true"/>
+            <attribute name="symbol" type="str" length="20" required="false"/>
+        </messageFormat>
+    </messageFormats>
+</root>

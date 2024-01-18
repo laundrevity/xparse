@@ -2,7 +2,7 @@ This project is a tool for generating Rust code to serialize and deserialize cer
 
 <h2> Run the example </h2>
 
-This example assumes you have Rust installed (and that `cargo` is in your PATH) and that you have Python3 installed (so that `python3` is in your PATH).
+This example assumes you have Rust installed (so that `cargo` is in your PATH) and that you have Python3 installed (so that `python3` is in your PATH).
 
 The file `example_schema.xml` contains an example of a set of message formats we could specify:
 ```xml
