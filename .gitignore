@@ -4,3 +4,4 @@ venv/
 runner/
 src/lib.rs
 .DS_Store
+state.txt

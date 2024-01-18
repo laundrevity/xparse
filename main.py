@@ -392,7 +392,6 @@ mod tests {
 
         code += f"""\t\tlet message_original = Message::{name.capitalize()}({name.capitalize()} {{\n"""
         for attrib in message_format["attributes"]:
-            print(f"{message_format=}, {attrib=}")
             code += f"""\t\t\t{attrib['name']}: {get_test_value(get_rust_type(attrib))},\n"""
         code += f"""\t\t}});\n\n"""
 
@@ -410,6 +409,7 @@ mod tests {
 if __name__ == "__main__":
     schema = parse_xml_schema("example_schema.xml")
 
+    print("Generating Rust code for schema:")
     print(json.dumps(schema, indent=4))
 
     rust_code = generate_rust_code_for_schema(schema)
