@@ -108,32 +108,153 @@ impl Header {
         else:
             return inner_type
 
+    def get_rust_num_bytes(rust_type: str) -> int:
+        if rust_type[0] in ('i', 'u'):
+            num_bits = int(rust_type[1:])
+            return int(num_bits / 8)
+        elif rust_type.startswith('[char'):
+            # technically char is 4 bytes but we are presupposing ASCII so its only 1
+            return int(rust_type[rust_type.index(';') + 1:-1])
+        elif rust_type == 'bool':
+            return 1
+        elif rust_type.startswith('Option<'):
+            return get_rust_num_bytes(rust_type[rust_type.index('<') + 1:-1])
+
+
+    def get_serialization_code(att, rust_type: str, omit_self=False) -> str:
+        code = ""
+        if rust_type.startswith('Option<'):
+            inner_type = rust_type[rust_type.index('<')+1:-1]
+            # [:-1] at end to exclude semicolon inside match arm
+            return f"""\t\tmatch self.{att} {{\n\t\t\tSome({att}) => {get_serialization_code(att, inner_type, omit_self=True)[:-1]},\n\t\t\t_ => {{}}\n\t\t}}"""
+        else:
+            if not omit_self:
+                self_string = "self."
+                tab_string = "\t\t"
+            else:
+                self_string = ""
+                tab_string = ""
+
+            if rust_type[0] in ('i', 'u'):
+                return f"""{tab_string}buf.extend_from_slice(&{self_string}{att}.to_be_bytes());"""
+            elif rust_type == 'bool':
+                return f"""{tab_string}buf.push(if {self_string}{att} {{ 1 }} else {{ 0 }});"""
+            elif rust_type.startswith('[char;'):
+                return f"""{tab_string}buf.append({self_string}{att}.iter().map(|&c| c as u8).collect::<Vec<u8>>().as_mut());"""
+
+        return code
+
+    def get_bitmask_code(attribute_rust_types) -> str:
+        code = "\t\tlet mut mask: u32 = 0;\n\n"
+        cnt = 0
+        for att_name, rust_type in attribute_rust_types:
+            if rust_type.startswith('Option<'):
+                code += f"""\t\tmatch self.{att_name} {{\n\t\t\tSome(_) => mask |= 1 << {cnt},\n\t\t\t_ => {{}}\n\t\t}}\n\n"""
+                cnt += 1
+        
+        code += f"""\t\tmask\n\t}}"""
+        return code
+    
+    # # non-optional type! handle the optionality in get_deserialization_code
+    # def get_deserialization_code_for_type(att_name, rust_type: str, inner=False) -> str:
+    #     code = ""
+    #     n = get_rust_num_bytes(rust_type)
+
+    #     if rust_type[0] in ('i', 'u'):
+    #         code += f"""{rust_type}::from_be_bytes(buffer[offset..offset + {n}].try_into().map_err(|_| "Invalid buffer: {att_name})?);\n"""
+
+    #     elif rust_type == 'bool':
+    #         code += f"""buffer[offset] != 0;\n"""
+
+    #     elif rust_type.startswith('[char;'):
+    #         code += f""""""
+
+    #     if inner:
+    #         tab_string = f"""\t\t\t"""
+    #     else:
+    #         tab_string = f"""\t\t"""
+    #     code += f"""{tab_string}offset += {n};"""
+
+    #     return code
+
+    def get_deserialization_code(attribute_rust_types) -> str:
+        code = f"""\tfn deserialize(buffer: &[u8]) -> Result<Self, &'static str> {{\n"""
+        code += f"""\t\tif buffer.len() < 9 {{\n\t\t\treturn Err("Buffer too short for header");\n\t\t}}\n\n"""
+
+        code += f"""\t\tlet header = Header::from_bytes(array_ref![buffer, 0, 9]);\n"""
+        code += f"""\t\tlet mut offset = 9;\n\n"""
+
+        opt_cnt = 0
+
+        for att_name, rust_type in attribute_rust_types:
+            if rust_type.startswith('Option'):
+                inner_rust_type = rust_type[rust_type.index('<')+1:-1]
+                
+                code += f"""\t\tlet {att_name} = if header.bitmask & (1 << {opt_cnt}) != 0 {{\n"""
+                opt_cnt += 1
+
+                if inner_rust_type.startswith('[char;'):
+                    n = get_rust_num_bytes(inner_rust_type)
+                    code += f"""\t\t\tlet mut {att_name}_chars = [' '; {n}];\n"""
+                    code += f"""\t\t\tfor i in 0..{n} {{\n"""
+                    code += f"""\t\t\t\t{att_name}_chars[i] = buffer[offset + i] as char;\n"""
+                    code += f"""\t\t\t}}\n"""
+            
+            else:
+                pass
+                
+
+        code += f"""\t}}"""
+        return code
+
     for message_format in schema:
-        code += f"""#[derive(PartialEq, Debug)]
-struct {message_format['name'].capitalize()} {{
-"""
+        code += f"""#[derive(PartialEq, Debug)]\nstruct {message_format['name'].capitalize()} {{\n"""
+        attribute_rust_types = []
         for attribute in message_format["attributes"]:
-            code += f"    {attribute['name']}: {get_rust_type(attribute)},\n"
+            attribute_rust_types.append([attribute['name'], get_rust_type(attribute)])
+
+        for attribute, rust_type in attribute_rust_types:
+            code += f"    {attribute}: {rust_type},\n"
         code += "}\n\n"
 
-    code += f"""#[derive(PartialEq, Debug)]
-enum Message {{
-"""
+        name = message_format["name"].capitalize()
+
+        # begin impl
+        code += f"""impl {name} {{\n"""
+
+        # begin max_payload_size
+        code += """    fn max_payload_size() -> usize {\n"""
+        total_payload_size = 0
+        for _, rt in attribute_rust_types:
+            total_payload_size += get_rust_num_bytes(rt)
+        code += f"\t\t{total_payload_size}"
+        # end max_payload_size
+        code += "\n    }\n\n"
+
+        # begin serialize
+        code += f"""\tfn serialize(&self) -> Vec<u8> {{\n"""
+        code += f"""\t\tlet mut buf: Vec<u8> = Vec::with_capacity({name}::max_payload_size());\n\n"""
+
+        for att, rust_type in attribute_rust_types:
+            code += f"{get_serialization_code(att, rust_type)}\n\n"
+        
+        # end serialize
+        code += """\n\t\tbuf\n\t}\n\n"""
+
+        # get_bitmask
+        code += f"""\tfn get_bitmask(&self) -> u32 {{\n"""
+        code += f"""{get_bitmask_code(attribute_rust_types)}\n\n"""
+        
+        code += f"""{get_deserialization_code(attribute_rust_types)}\n\n"""
+
+        # end struct impl
+        code += "}\n\n"
+
+    code += f"""#[derive(PartialEq, Debug)]\nenum Message {{\n"""
     for message_format in schema:
         name = message_format["name"].capitalize()
         code += f"    {name}({name}),\n"
     code += "}\n\n"
-
-    for message_format in schema:
-        name = message_format["name"].capitalize()
-        code += f"""impl {name} {{
-"""
-        code += """    fn max_payload_size() -> usize {
-"""
-
-        code += "    }\n\n"
-
-        code += "}\n"
 
     return code
 

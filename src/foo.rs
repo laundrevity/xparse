@@ -64,6 +64,62 @@ struct Person {
     is_student: bool,
 }
 
+impl Person {
+    fn max_payload_size() -> usize {
+		42
+    }
+
+	fn serialize(&self) -> Vec<u8> {
+		let mut buf: Vec<u8> = Vec::with_capacity(Person::max_payload_size());
+
+		buf.extend_from_slice(&self.id.to_be_bytes());
+
+		buf.append(self.name.iter().map(|&c| c as u8).collect::<Vec<u8>>().as_mut());
+
+		match self.age {
+			Some(age) => buf.extend_from_slice(&age.to_be_bytes()),
+			_ => {}
+		}
+
+		match self.city {
+			Some(city) => buf.append(city.iter().map(|&c| c as u8).collect::<Vec<u8>>().as_mut()),
+			_ => {}
+		}
+
+		buf.push(if self.is_student { 1 } else { 0 });
+
+
+		buf
+	}
+
+	fn get_bitmask(&self) -> u32 {
+		let mut mask: u32 = 0;
+
+		match self.age {
+			Some(_) => mask |= 1 << 0,
+			_ => {}
+		}
+
+		match self.city {
+			Some(_) => mask |= 1 << 1,
+			_ => {}
+		}
+
+		mask
+	}
+
+	fn deserialize(buffer: &[u8]) -> Result<Self, &'static str> {
+		if buffer.len() < 9 {
+			return Err("Buffer too short for header");
+		}
+
+		let header = Header::from_bytes(array_ref![buffer, 0, 9]);
+		let mut offset = 9;
+
+	}
+
+}
+
 #[derive(PartialEq, Debug)]
 struct Employee {
     employee_id: i32,
@@ -73,19 +129,57 @@ struct Employee {
     is_manager: bool,
 }
 
+impl Employee {
+    fn max_payload_size() -> usize {
+		54
+    }
+
+	fn serialize(&self) -> Vec<u8> {
+		let mut buf: Vec<u8> = Vec::with_capacity(Employee::max_payload_size());
+
+		buf.extend_from_slice(&self.employee_id.to_be_bytes());
+
+		buf.append(self.employee_name.iter().map(|&c| c as u8).collect::<Vec<u8>>().as_mut());
+
+		buf.extend_from_slice(&self.salary.to_be_bytes());
+
+		match self.department {
+			Some(department) => buf.append(department.iter().map(|&c| c as u8).collect::<Vec<u8>>().as_mut()),
+			_ => {}
+		}
+
+		buf.push(if self.is_manager { 1 } else { 0 });
+
+
+		buf
+	}
+
+	fn get_bitmask(&self) -> u32 {
+		let mut mask: u32 = 0;
+
+		match self.department {
+			Some(_) => mask |= 1 << 0,
+			_ => {}
+		}
+
+		mask
+	}
+
+	fn deserialize(buffer: &[u8]) -> Result<Self, &'static str> {
+		if buffer.len() < 9 {
+			return Err("Buffer too short for header");
+		}
+
+		let header = Header::from_bytes(array_ref![buffer, 0, 9]);
+		let mut offset = 9;
+
+	}
+
+}
+
 #[derive(PartialEq, Debug)]
 enum Message {
     Person(Person),
     Employee(Employee),
 }
 
-impl Person {
-    fn max_payload_size() -> usize {
-    }
-
-}
-impl Employee {
-    fn max_payload_size() -> usize {
-    }
-
-}

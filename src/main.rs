@@ -123,6 +123,7 @@ impl Person {
         };
 
         let is_student = buffer[offset] != 0;
+        offset += 1;
 
         Ok(Self {
             id,
@@ -232,6 +233,7 @@ impl Employee {
         };
 
         let is_manager = buffer[offset] != 0;
+        offset += 1;
 
         Ok(Self {
             employee_id,
