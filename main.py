@@ -556,7 +556,7 @@ impl PyMessage {
                         arg_listings += f"""\t\t\t\t{att_name}: {att_name}_enum,\n"""
 
                     else:
-                        raise Exception(f"Unknown Rust type: {inner_rust_type}")
+                        raise Exception(f"Unknown Rust type: {rust_type}")
                 else:
                     arg_listings += f"""\t\t\t\t{att_name},\n"""
 
