@@ -1,6 +1,9 @@
 import xml.etree.ElementTree as ET
+import shutil
 import json
 import sys
+import os
+
 
 HEADER_AND_UTIL_CODE = r"""use arrayref::array_ref;
 use pyo3::prelude::*;
@@ -95,6 +98,26 @@ def get_test_value(rust_type: str, enum_schema) -> str:
         raise Exception(f"Unknown Rust type for get_test_value: {rust_type}")
 
 
+def get_test_python_value(rust_type: str, enum_schema):
+    if rust_type[0] == "i":
+        return -123
+    elif rust_type[0] == "u":
+        return 123
+    elif rust_type[0] == "f":
+        return 3.14
+    elif rust_type == "bool":
+        return (True,)
+    elif rust_type.startswith("[char;"):
+        return f"""'John Doe'"""
+    elif rust_type.lower() in enum_schema:
+        return 1
+    elif rust_type.startswith("Option"):
+        inner_rust_type = rust_type[rust_type.index("<") + 1 : -1]
+        return get_test_python_value(inner_rust_type, enum_schema)
+    else:
+        raise Exception(f"Unknown Rust type for get_test_python_value: {rust_type}")
+
+
 def parse_xml_schema(xml_file: str):
     tree = ET.parse(xml_file)
     root = tree.getroot()
@@ -131,36 +154,37 @@ def parse_xml_schema(xml_file: str):
     return enum_types, message_formats
 
 
+def get_rust_type(attribute) -> str:
+    if attribute.get("length") is None:
+        length = 1
+    else:
+        length = int(attribute.get("length"))
+
+    base_type, optional = (
+        attribute["type"],
+        not attribute["required"],
+    )
+    inner_type = ""
+    if base_type == "int":
+        inner_type = f"i{length * 8}"
+    elif base_type == "uint":
+        inner_type = f"u{length * 8}"
+    elif base_type == "float":
+        inner_type = f"f{length * 8}"
+    elif base_type == "bool":
+        inner_type = "bool"
+    elif base_type == "str":
+        inner_type = f"[char; {length}]"
+    else:  # assume Enum here
+        inner_type = base_type.capitalize()
+    if optional:
+        return f"Option<{inner_type}>"
+    else:
+        return inner_type
+
+
 def generate_rust_code_for_schema(schema) -> str:
     code = HEADER_AND_UTIL_CODE
-
-    def get_rust_type(attribute) -> str:
-        if attribute.get("length") is None:
-            length = 1
-        else:
-            length = int(attribute.get("length"))
-
-        base_type, optional = (
-            attribute["type"],
-            not attribute["required"],
-        )
-        inner_type = ""
-        if base_type == "int":
-            inner_type = f"i{length * 8}"
-        elif base_type == "uint":
-            inner_type = f"u{length * 8}"
-        elif base_type == "float":
-            inner_type = f"f{length * 8}"
-        elif base_type == "bool":
-            inner_type = "bool"
-        elif base_type == "str":
-            inner_type = f"[char; {length}]"
-        else:  # assume Enum here
-            inner_type = base_type.capitalize()
-        if optional:
-            return f"Option<{inner_type}>"
-        else:
-            return inner_type
 
     def get_rust_num_bytes(rust_type: str) -> int:
         if rust_type[0] in ("i", "u", "f"):
@@ -227,8 +251,12 @@ def generate_rust_code_for_schema(schema) -> str:
 
         opt_cnt = 0
 
-        for att_name, rust_type in attribute_rust_types:
+        for i, pair in enumerate(attribute_rust_types):
+            att_name, rust_type = pair
             ok_code += f"""\t\t\t{att_name},\n"""
+
+            skip_offset = i == len(attribute_rust_types) - 1
+
             if rust_type.startswith("Option"):
                 inner_rust_type = rust_type[rust_type.index("<") + 1 : -1]
                 n = get_rust_num_bytes(inner_rust_type)
@@ -242,24 +270,28 @@ def generate_rust_code_for_schema(schema) -> str:
                     code += f"""\t\t\t\t{att_name}_chars[i] = buffer[offset + i] as char;\n"""
                     code += f"""\t\t\t}}\n"""
 
-                    code += f"""\t\t\toffset += {n};\n"""
+                    if not skip_offset:
+                        code += f"""\t\t\toffset += {n};\n"""
                     code += f"""\t\t\tSome({att_name}_chars)\n"""
 
                 elif inner_rust_type[0] in ("i", "u", "f"):
                     code += f"""\t\t\tlet {att_name}_value = {inner_rust_type}::from_be_bytes(buffer[offset..offset + {n}].try_into().map_err(|_| "Invalid buffer: {att_name}")?);\n"""
 
-                    code += f"""\t\t\toffset += {n};\n"""
+                    if not skip_offset:
+                        code += f"""\t\t\toffset += {n};\n"""
                     code += f"""\t\t\tSome({att_name}_value)\n"""
 
                 elif inner_rust_type[0] == "bool":
                     code += f"""\t\t\tlet {att_name}_value = buffer[offset] != 0;"""
 
-                    code += f"""\t\t\toffset += {n};\n"""
+                    if not skip_offset:
+                        code += f"""\t\t\toffset += {n};\n"""
                     code += f"""\t\t\tSome({att_name}_value)\n"""
 
                 else:  # assume Enum
                     code += f"""\t\t\tlet {att_name}_value = {inner_rust_type}::from_u8(buffer[offset]).map_err(|_| "Invalid buffer: {att_name}")?;\n"""
-                    code += f"""\t\t\toffset += 1;\n"""
+                    if not skip_offset:
+                        code += f"""\t\t\toffset += 1;\n"""
                     code += f"""\t\t\tSome({att_name}_value)\n"""
 
                 code += f"""\t\t}} else {{\n\t\t\tNone\n\t\t}};\n\n"""
@@ -282,7 +314,8 @@ def generate_rust_code_for_schema(schema) -> str:
                 else:  # assume Enum
                     code += f"""\t\tlet {att_name} = {rust_type}::from_u8(buffer[offset]).map_err(|_| "Invalid buffer: {att_name}")?;"""
 
-                code += f"""\t\toffset += {n};\n\n"""
+                if not skip_offset:
+                    code += f"""\t\toffset += {n};\n\n"""
 
         ok_code += f"""\t\t}})\n"""
 
@@ -363,6 +396,7 @@ def generate_rust_code_for_schema(schema) -> str:
         code += f"""\tfn get_bitmask(&self) -> u32 {{\n"""
         code += f"""{get_bitmask_code(attribute_rust_types)}\n\n"""
 
+        # deserialize
         code += f"""{get_deserialization_code(attribute_rust_types)}\n\n"""
 
         # get_example
@@ -470,7 +504,7 @@ impl PyMessage {
 """
     # message format specific constructors
     for message_format in message_formats_schema:
-        name = message_format["name"].capitalize()
+        name = message_format["name"]
         code += f"""\t#[staticmethod]\n"""
         code += f"""\tfn {name}(\n"""
 
@@ -564,7 +598,9 @@ impl PyMessage {
                     arg_listings += f"""\t\t\t\t{att_name},\n"""
 
         code += f"""\t\tOk(PyMessage {{\n"""
-        code += f"""\t\t\tmessage: Message::{name}({name} {{\n"""
+        code += (
+            f"""\t\t\tmessage: Message::{name.capitalize()}({name.capitalize()} {{\n"""
+        )
         code += arg_listings
         code += f"""\t\t\t}}),\n"""
         code += f"""\t\t}})\n"""
@@ -647,15 +683,36 @@ def generate_rust_code_main_for_schema(schema, schema_name) -> str:
 def generate_python_tests_for_schema(schema, schema_name) -> str:
     code = f"""from xparse import PyMessage\n\n\n"""
     message_formats_schema = schema[1]
+    enums_schema = schema[0]
     for message_format in message_formats_schema:
-        code += f"""def test_{message_format['name']}():\n"""
-        code += f"""\tmessage_bytes = open("{schema_name}_{message_format['name']}.xb", "rb").read()\n"""
+        name = message_format["name"]
+        code += f"""def test_{name}_deserialize_serialize():\n"""
+        code += f"""\tmessage_bytes = open("{schema_name}_{name}.xb", "rb").read()\n"""
         code += f"""\tmessage = PyMessage.from_bytes(message_bytes)\n"""
         code += f"""\tmessage_bytes_out = message.to_bytes()\n\n"""
         code += f"""\tfor x, y in zip(message_bytes, message_bytes_out):\n"""
         code += f"""\t\tassert x == y\n\n\n"""
 
+        attribute_rust_types = []
+        for attribute in message_format["attributes"]:
+            attribute_rust_types.append([attribute["name"], get_rust_type(attribute)])
+
+        code += f"""def test_{name}_serialize_deserialize():\n"""
+        code += f"""\t{name} = PyMessage.{name}(\n"""
+        for att_name, rust_type in attribute_rust_types:
+            code += f"""\t\t{att_name}={get_test_python_value(rust_type, enums_schema)},\n"""
+        code += f"""\t)\n"""
+        code += f"""\t{name}_bytes = {name}.to_bytes()\n"""
+        code += f"""\t{name}_result = PyMessage.from_bytes({name}_bytes)\n\n"""
+        code += f"""\tassert {name} == {name}_result\n\n\n"""
+
     return code
+
+
+def wipe_dir(dir_path: str):
+    if os.path.exists(dir_path):
+        shutil.rmtree(dir_path)
+    os.makedirs(dir_path)
 
 
 if __name__ == "__main__":
@@ -667,17 +724,26 @@ if __name__ == "__main__":
 
     schema_name = schema_path[schema_path.index("/") + 1 : -4]
 
-    print("Generating Rust code for schema:")
-    print(json.dumps(schema, indent=4))
+    print(f"Generating code for {schema_path}...")
+    # print(json.dumps(schema, indent=4))
 
+    print(f"Wiping src/ directory...")
+    wipe_dir("src")
+
+    print(f"Generating Rust code [src/lib.rs]...")
     rust_code = generate_rust_code_for_schema(schema)
     with open(f"src/lib.rs", "w") as f:
         f.write(rust_code)
 
     rust_code_main = generate_rust_code_main_for_schema(schema, schema_name)
+    print(f"Generating Rust code [src/main.rs]...")
     with open(f"src/main.rs", "w") as f:
         f.write(rust_code_main)
 
+    print(f"Wiping tests/ directory...")
+    wipe_dir("tests")
+
+    print(f"Generating Python code [tests/test_xparse.py]...")
     python_tests_code = generate_python_tests_for_schema(schema, schema_name)
     with open(f"tests/test_xparse.py", "w") as f:
         f.write(python_tests_code)
