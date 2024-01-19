@@ -66,31 +66,8 @@ struct PyMessage {
     message: Message,
 }
 
-#[pymethods]
-impl PyMessage {
-    #[new]
-    fn new(buffer: Vec<u8>) -> PyResult<Self> {
-        match Message::deserialize(&buffer) {
-            Ok(message) => Ok(PyMessage { message }),
-            Err(e) => Err(PyValueError::new_err(e.to_string())),
-        }
-    }
-
-    fn to_bytes(&self) -> Vec<u8> {
-        self.message.serialize()
-    }
-
-    #[staticmethod]
-    fn from_bytes(buffer: Vec<u8>) -> PyResult<PyMessage> {
-        match Message::deserialize(&buffer) {
-            Ok(message) => Ok(PyMessage { message }),
-            Err(e) => Err(PyValueError::new_err(e.to_string())),
-        }
-    }
-}
-
 #[pymodule]
-fn xparse(py: Python, m: &PyModule) -> PyResult<()> {
+fn xparse(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyMessage>()?;
     Ok(())
 }
@@ -463,6 +440,136 @@ def generate_rust_code_for_schema(schema) -> str:
     # end Message impl
     code += f"""}}"""
 
+    # begin PyMessage impl
+    code += r"""#[pymethods]
+impl PyMessage {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.message.serialize()
+    }
+
+    #[staticmethod]
+    fn from_bytes(buffer: Vec<u8>) -> PyResult<PyMessage> {
+        match Message::deserialize(&buffer) {
+            Ok(message) => Ok(PyMessage { message }),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.message)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    fn __eq__(&self, other: PyRef<PyMessage>) -> PyResult<bool> {
+        Ok(self.message == other.message)
+    }
+
+"""
+    # message format specific constructors
+    for message_format in message_formats_schema:
+        name = message_format["name"].capitalize()
+        code += f"""\t#[staticmethod]\n"""
+        code += f"""\tfn {name}(\n"""
+
+        # get attribute rust types again for constructor
+        attribute_rust_types = []
+        for attribute in message_format["attributes"]:
+            attribute_rust_types.append([attribute["name"], get_rust_type(attribute)])
+
+        # first pass - required attributes in args
+        for att_name, rust_type in attribute_rust_types:
+            if not "Option" in rust_type:
+                if rust_type.lower() in enums_schema:
+                    mapped_rust_type = "u8"
+                elif "[char;" in rust_type:
+                    mapped_rust_type = "String"
+                else:
+                    mapped_rust_type = rust_type
+
+                code += f"""\t\t{att_name}: {mapped_rust_type},\n"""
+
+        # second pass - optional attributes in args
+        for att_name, rust_type in attribute_rust_types:
+            if "Option" in rust_type:
+                inner_rust_type = rust_type[rust_type.index("<") + 1 : -1]
+                if inner_rust_type.lower() in enums_schema:
+                    mapped_inner_rust_type = "u8"
+                elif "[char;" in inner_rust_type:
+                    mapped_inner_rust_type = "String"
+                else:
+                    mapped_inner_rust_type = inner_rust_type
+                mapped_rust_type = f"Option<{mapped_inner_rust_type}>"
+                code += f"""\t\t{att_name}: {mapped_rust_type},\n"""
+
+        code += f"""\t) -> PyResult<PyMessage> {{\n"""
+
+        # now iterate over attributes for the body, generating special code for handling strings and enums
+        arg_listings = ""
+        for att_name, rust_type in attribute_rust_types:
+            if rust_type.startswith("Option"):
+                inner_rust_type = rust_type[rust_type.index("<") + 1 : -1]
+                if inner_rust_type[0] not in ("i", "u", "f"):
+                    # handle Opt<String> -> Opt<[char; _]>
+                    if inner_rust_type.startswith("[char;"):
+                        # map string to char array and wrap it on an opt
+                        code += f"""\t\tlet {att_name}_array = {att_name}.map(|s| string_to_char_array(&s)).transpose().map_err(|_| PyValueError::new_err("Error converting {att_name} string to char array"))?;\n\n"""
+                        arg_listings += f"""\t\t\t\t{att_name}: {att_name}_array,\n"""
+
+                    # handle Opt<u8> -> Opt<Enum>
+                    elif inner_rust_type.lower() in enums_schema:
+                        code += f"""\t\tlet {att_name}_enum = match {att_name} {{\n"""
+                        code += f"""\t\t\tSome(value) => match value {{\n"""
+                        for k, v in enums_schema[inner_rust_type.lower()].items():
+                            code += f"""\t\t\t\t{int(v)} => Some({inner_rust_type.lower()}::{k.capitalize()}),\n"""
+                        code += f"""\t\t\t\t_ => return Err(PyValueErr::new_err("Invalid enum value for {att_name}")),\n"""
+                        code += f"""\t\t\t}},\n"""
+                        code += f"""\t\t\tNone => None,\n"""
+                        code += f"""\t\t}};\n\n"""
+                        arg_listings += f"""\t\t\t\t{att_name}: {att_name}_enum,\n"""
+
+                    # rage, rage against the dying of the light
+                    else:
+                        raise Exception(
+                            f"Unknown Rust type inside Option: {inner_rust_type}"
+                        )
+                else:
+                    # numbers are so easy, we could all take a page from their book
+                    arg_listings += f"""\t\t\t\t{att_name},\n"""
+
+            else:
+                if rust_type[0] not in ("i", "u", "f"):
+                    # handle String -> [char; _];
+                    if rust_type.startswith("[char;"):
+                        code += f"""\t\tlet {att_name}_array = string_to_char_array(&{att_name}).map_err(|_| PyValueError::new_err("Error convering {att_name} string to char array"))?;\n\n"""
+                        arg_listings += f"""\t\t\t\t{att_name}: {att_name}_array,\n"""
+
+                    # handle u8 -> Enum
+                    elif rust_type.lower() in enums_schema:
+                        code += f"""\t\tlet {att_name}_enum = match {att_name} {{\n"""
+                        for k, v in enums_schema[rust_type.lower()].items():
+                            code += f"""\t\t\t{int(v)} => {rust_type}::{k.capitalize()},\n"""
+                        code += f"""\t\t\t_ => return Err(PyValueError::new_err("Invalid enum value for {att_name}")),\n"""
+                        code += f"""\t\t}};\n\n"""
+                        arg_listings += f"""\t\t\t\t{att_name}: {att_name}_enum,\n"""
+
+                    else:
+                        raise Exception(f"Unknown Rust type: {inner_rust_type}")
+                else:
+                    arg_listings += f"""\t\t\t\t{att_name},\n"""
+
+        code += f"""\t\tOk(PyMessage {{\n"""
+        code += f"""\t\t\tmessage: Message::{name}({name} {{\n"""
+        code += arg_listings
+        code += f"""\t\t\t}}),\n"""
+        code += f"""\t\t}})\n"""
+        code += f"""\t}}\n\n"""
+
+    # end PyMessage impl
+    code += f"""}}\n\n"""
+
     # begin tests
     code += r"""#[cfg(test)]
 mod tests {
@@ -540,7 +647,7 @@ def generate_python_tests_for_schema(schema, schema_name) -> str:
     for message_format in message_formats_schema:
         code += f"""def test_{message_format['name']}():\n"""
         code += f"""\tmessage_bytes = open("{schema_name}_{message_format['name']}.xb", "rb").read()\n"""
-        code += f"""\tmessage = PyMessage(message_bytes)\n"""
+        code += f"""\tmessage = PyMessage.from_bytes(message_bytes)\n"""
         code += f"""\tmessage_bytes_out = message.to_bytes()\n\n"""
         code += f"""\tfor x, y in zip(message_bytes, message_bytes_out):\n"""
         code += f"""\t\tassert x == y\n\n\n"""
