@@ -28,44 +28,15 @@ jobs:
           pip install maturin pytest
         shell: bash
 
-      - name: Generate Rust code 1
-        run: python3 main.py example_schemas/school.xml
-
-      - name: Run Rust tests 1
-        run: cargo test --verbose
-
-      - name: Generate example output 1
-        run: cargo run --verbose
-      
-      - name: Generate Python bindings 1
+      - name: Process example schemas
         run: |
           . venv/bin/activate
-          maturin develop
-        shell: bash
-
-      - name: Run Python tests 1
-        run: |
-          . venv/bin/activate
-          pytest
-        shell: bash
-
-      - name: Generate Rust code 2
-        run: python3 main.py example_schemas/trading.xml
-
-      - name: Run Rust tests 2
-        run: cargo test --verbose
-
-      - name: Generate example output 2
-        run: cargo run --verbose
-      
-      - name: Generate Python bindings 2
-        run: |
-          . venv/bin/activate
-          maturin develop
-        shell: bash
-
-      - name: Run Python tests 2
-        run: |
-          . venv/bin/activate
-          pytest
+          for schema in example_schemas/*.xml; do
+            echo "Processing $schema"
+            python3 main.py "$schema"
+            cargo test --verbose
+            cargo run --verbose
+            maturin develop
+            pytest -v
+          done
         shell: bash
