@@ -1,4 +1,4 @@
-This project is a tool for generating Rust code to serialize and deserialize certain message formats as specified in XML.
+This project is a tool for generating Rust code and Python bindings for serializing and deserializing certain message formats as specified in XML.
 
 <h2> Run the example </h2>
 
@@ -71,7 +71,17 @@ or `trading.xml`:
 </root>
 ```
 
-The Rust code can be generated via `python3 main.py <PATH TO SCHEMA XML>`, and the tests can be run via `cargo test`.
+To generate Rust code, Python bindings, and run tests for the `trading.xml` example schema:
+```shell
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python main.py example_schemas/trading.xml
+maturin develop
+cargo test
+cargo run
+pytest
+``` 
 
 <h2>Supported message types</h2>
 Presently, only the following message attribute types are supported:
