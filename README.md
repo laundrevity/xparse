@@ -4,7 +4,7 @@ This project is a tool for generating Rust code and Python bindings for serializ
 
 This example assumes you have Rust installed (so that `cargo` is in your PATH) and that you have Python3 installed (so that `python3` is in your PATH).
 
-The folder `example_schemas` contains some examples of sets of message formats we could specify, e.g. `school.xml`:
+The folder `example_schemas` contains some examples of sets of message formats we could specify, e.g. `school.xml`
 ```xml
 <root>
     <enumTypes>
@@ -41,8 +41,82 @@ The folder `example_schemas` contains some examples of sets of message formats w
     </messageFormats>
 </root>
 ```
+which generates (passing) Python tests
+```python
+from xparse import PyMessage
 
-or `trading.xml`:
+
+def test_person_deserialize_serialize():
+	message_bytes = open("school_person.xb", "rb").read()
+	message = PyMessage.from_bytes(message_bytes)
+	message_bytes_out = message.to_bytes()
+
+	for x, y in zip(message_bytes, message_bytes_out):
+		assert x == y
+
+
+def test_person_serialize_deserialize():
+	person = PyMessage.person(
+		id=-123,
+		name='John Doe',
+		age=123,
+		city='John Doe',
+		is_student=True,
+		person_role=1,
+	)
+	person_bytes = person.to_bytes()
+	person_result = PyMessage.from_bytes(person_bytes)
+
+	assert person == person_result
+
+
+def test_employee_deserialize_serialize():
+	message_bytes = open("school_employee.xb", "rb").read()
+	message = PyMessage.from_bytes(message_bytes)
+	message_bytes_out = message.to_bytes()
+
+	for x, y in zip(message_bytes, message_bytes_out):
+		assert x == y
+
+
+def test_employee_serialize_deserialize():
+	employee = PyMessage.employee(
+		employee_id=-123,
+		employee_name='John Doe',
+		salary=123,
+		department='John Doe',
+		is_manager=True,
+	)
+	employee_bytes = employee.to_bytes()
+	employee_result = PyMessage.from_bytes(employee_bytes)
+
+	assert employee == employee_result
+
+
+def test_student_deserialize_serialize():
+	message_bytes = open("school_student.xb", "rb").read()
+	message = PyMessage.from_bytes(message_bytes)
+	message_bytes_out = message.to_bytes()
+
+	for x, y in zip(message_bytes, message_bytes_out):
+		assert x == y
+
+
+def test_student_serialize_deserialize():
+	student = PyMessage.student(
+		person_id=-123,
+		zip_code=123,
+		major='John Doe',
+		gpa=3.14,
+		gpa_in_major=3.14,
+	)
+	student_bytes = student.to_bytes()
+	student_result = PyMessage.from_bytes(student_bytes)
+
+	assert student == student_result
+```
+
+or `trading.xml`
 ```xml
 <root>
     <enumTypes>
@@ -71,7 +145,59 @@ or `trading.xml`:
 </root>
 ```
 
-To generate Rust code, Python bindings, and run tests for the `trading.xml` example schema:
+which generates (passing) Python tests
+```python
+from xparse import PyMessage
+
+
+def test_order_deserialize_serialize():
+	message_bytes = open("trading_order.xb", "rb").read()
+	message = PyMessage.from_bytes(message_bytes)
+	message_bytes_out = message.to_bytes()
+
+	for x, y in zip(message_bytes, message_bytes_out):
+		assert x == y
+
+
+def test_order_serialize_deserialize():
+	order = PyMessage.order(
+		order_id=123,
+		price=3.14,
+		account_id=123,
+		quantity=123,
+		order_side=1,
+		instrument_id=123,
+		symbol='John Doe',
+	)
+	order_bytes = order.to_bytes()
+	order_result = PyMessage.from_bytes(order_bytes)
+
+	assert order == order_result
+
+
+def test_position_deserialize_serialize():
+	message_bytes = open("trading_position.xb", "rb").read()
+	message = PyMessage.from_bytes(message_bytes)
+	message_bytes_out = message.to_bytes()
+
+	for x, y in zip(message_bytes, message_bytes_out):
+		assert x == y
+
+
+def test_position_serialize_deserialize():
+	position = PyMessage.position(
+		quantity=-123,
+		account_id=123,
+		instrument_id=123,
+		symbol='John Doe',
+	)
+	position_bytes = position.to_bytes()
+	position_result = PyMessage.from_bytes(position_bytes)
+
+	assert position == position_result
+```
+
+To generate Rust code and Python bindings and run all tests for the `trading.xml` example schema:
 ```shell
 python3 -m venv venv
 source venv/bin/activate
