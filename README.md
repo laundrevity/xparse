@@ -220,8 +220,8 @@ Presently, only the following message attribute types are supported:
 <h2>Binary message format</h2>
 Every message begins with a <i>header</i>, which consists of:
 
-- 4 byte unsigned integer <i>message length</i> (including the header length)
-- 1 byte unsigned integer <i>message type</i> indicating what the message format (corresponding to `messageFormat id` in the XML)
-- 4 byte unsigned integer <i>bitmask</i> bitmask which, in big endian, indicates which, if any, of the optional fields are present
+- 4 byte unsigned integer <i>message length</i> (including the fixed header length, 9)
+- 1 byte unsigned integer <i>message type</i> indicating the message format (corresponding to `messageFormat id` in the XML)
+- 4 byte unsigned integer <i>bitmask</i> which, in big endian, indicates which, if any, of the optional fields are present
 
 After the header, the message consists of the fields in order of appearance in the XML which are indicated as present by the bitmask.
