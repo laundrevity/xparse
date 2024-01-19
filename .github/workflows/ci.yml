@@ -35,7 +35,10 @@ jobs:
         shell: bash
       
       - name: Run Rust tests 1
-        run: cargo test --verbose
+        run: |
+          . venv/bin/activate
+          cargo test --verbose
+        shell: bash
 
       - name: Generate example output 1
         run: cargo run --verbose
