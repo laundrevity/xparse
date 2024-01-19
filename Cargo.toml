@@ -11,4 +11,7 @@ arrayref = "0.3.7"
 
 [dependencies.pyo3]
 version = "0.20.0"
-features = ["abi3-py38"]
+features = ["abi3-py38", "extension-module"]
+
+[build-dependencies]
+pyo3-build-config = "0.20.2"
