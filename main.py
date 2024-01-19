@@ -511,7 +511,10 @@ impl PyMessage {
         for att_name, rust_type in attribute_rust_types:
             if rust_type.startswith("Option"):
                 inner_rust_type = rust_type[rust_type.index("<") + 1 : -1]
-                if inner_rust_type[0] not in ("i", "u", "f"):
+                if (
+                    inner_rust_type[0] not in ("i", "u", "f")
+                    and inner_rust_type != "bool"
+                ):
                     # handle Opt<String> -> Opt<[char; _]>
                     if inner_rust_type.startswith("[char;"):
                         # map string to char array and wrap it on an opt
@@ -523,8 +526,8 @@ impl PyMessage {
                         code += f"""\t\tlet {att_name}_enum = match {att_name} {{\n"""
                         code += f"""\t\t\tSome(value) => match value {{\n"""
                         for k, v in enums_schema[inner_rust_type.lower()].items():
-                            code += f"""\t\t\t\t{int(v)} => Some({inner_rust_type.lower()}::{k.capitalize()}),\n"""
-                        code += f"""\t\t\t\t_ => return Err(PyValueErr::new_err("Invalid enum value for {att_name}")),\n"""
+                            code += f"""\t\t\t\t{int(v)} => Some({inner_rust_type}::{k.capitalize()}),\n"""
+                        code += f"""\t\t\t\t_ => return Err(PyValueError::new_err("Invalid enum value for {att_name}")),\n"""
                         code += f"""\t\t\t}},\n"""
                         code += f"""\t\t\tNone => None,\n"""
                         code += f"""\t\t}};\n\n"""
@@ -540,7 +543,7 @@ impl PyMessage {
                     arg_listings += f"""\t\t\t\t{att_name},\n"""
 
             else:
-                if rust_type[0] not in ("i", "u", "f"):
+                if rust_type[0] not in ("i", "u", "f") and rust_type != "bool":
                     # handle String -> [char; _];
                     if rust_type.startswith("[char;"):
                         code += f"""\t\tlet {att_name}_array = string_to_char_array(&{att_name}).map_err(|_| PyValueError::new_err("Error convering {att_name} string to char array"))?;\n\n"""
