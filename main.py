@@ -3,6 +3,8 @@ import json
 import sys
 
 HEADER_AND_UTIL_CODE = r"""use arrayref::array_ref;
+use pyo3::prelude::*;
+use pyo3::exceptions::PyValueError;
 
 pub fn string_to_char_array<const N: usize>(s: &str) -> Result<[char; N], &'static str> {
     if s.len() > N {
@@ -59,6 +61,39 @@ impl Header {
     }
 }
 
+#[pyclass]
+struct PyMessage {
+    message: Message,
+}
+
+#[pymethods]
+impl PyMessage {
+    #[new]
+    fn new(buffer: Vec<u8>) -> PyResult<Self> {
+        match Message::deserialize(&buffer) {
+            Ok(message) => Ok(PyMessage { message }),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        self.message.serialize()
+    }
+
+    #[staticmethod]
+    fn from_bytes(buffer: Vec<u8>) -> PyResult<PyMessage> {
+        match Message::deserialize(&buffer) {
+            Ok(message) => Ok(PyMessage { message }),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }
+    }
+}
+
+#[pymodule]
+fn xparse(py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<PyMessage>()?;
+    Ok(())
+}
 """
 
 
@@ -353,6 +388,14 @@ def generate_rust_code_for_schema(schema) -> str:
 
         code += f"""{get_deserialization_code(attribute_rust_types)}\n\n"""
 
+        # get_example
+        code += f"""\tpub fn get_example() -> Self {{\n"""
+        code += f"""\t\tSelf {{\n"""
+        for attrib in message_format["attributes"]:
+            code += f"""\t\t\t{attrib['name']}: {get_test_value(get_rust_type(attrib), enums_schema)},\n"""
+        code += f"""\t\t}}\n"""
+        code += f"""\t}}\n"""
+
         # end struct impl
         code += "}\n\n"
 
@@ -415,7 +458,7 @@ def generate_rust_code_for_schema(schema) -> str:
     code += f"""\t\t\t_ => Err("Unknown message type id"),\n"""
     code += f"""\t\t}}\n"""
     # end Message::deserialize
-    code += f"""\t}}\n"""
+    code += f"""\t}}\n\n"""
 
     # end Message impl
     code += f"""}}"""
@@ -458,10 +501,7 @@ mod tests {
         name = message_format["name"]
         code += f"""\tfn test_{name}_serialize_deserialize() {{\n"""
 
-        code += f"""\t\tlet message_original = Message::{name.capitalize()}({name.capitalize()} {{\n"""
-        for attrib in message_format["attributes"]:
-            code += f"""\t\t\t{attrib['name']}: {get_test_value(get_rust_type(attrib), enums_schema)},\n"""
-        code += f"""\t\t}});\n\n"""
+        code += f"""\t\tlet message_original = Message::{name.capitalize()}({name.capitalize()}::get_example());\n\n"""
 
         code += f"""\t\tlet message_bytes = message_original.serialize();\n"""
         code += f"""\t\tlet message_result = Message::deserialize(&message_bytes).unwrap();\n\n"""
@@ -474,16 +514,60 @@ mod tests {
     return code
 
 
+def generate_rust_code_main_for_schema(schema, schema_name) -> str:
+    code = f"""use std::io::Write;\n"""
+    code += f"""use xparse::{{Message"""
+    message_formats_schema = schema[1]
+
+    for message_format in message_formats_schema:
+        code += f""", {message_format['name'].capitalize()}"""
+    code += f"""}};\n\n"""
+
+    code += f"""fn main() {{\n"""
+    for message_format in message_formats_schema:
+        name = message_format["name"]
+        code += f"""\tlet {name} = Message::{name.capitalize()}({name.capitalize()}::get_example());\n\n"""
+        code += f"""\tlet mut file = std::fs::File::create("{schema_name}_{name}.xb").unwrap();\n"""
+        code += f"""\tfile.write_all(&{name}.serialize()).unwrap();\n\n"""
+
+    code += f"""}}"""
+    return code
+
+
+def generate_python_tests_for_schema(schema, schema_name) -> str:
+    code = f"""from xparse import PyMessage\n\n\n"""
+    message_formats_schema = schema[1]
+    for message_format in message_formats_schema:
+        code += f"""def test_{message_format['name']}():\n"""
+        code += f"""\tmessage_bytes = open("{schema_name}_{message_format['name']}.xb", "rb").read()\n"""
+        code += f"""\tmessage = PyMessage(message_bytes)\n"""
+        code += f"""\tmessage_bytes_out = message.to_bytes()\n\n"""
+        code += f"""\tfor x, y in zip(message_bytes, message_bytes_out):\n"""
+        code += f"""\t\tassert x == y\n\n\n"""
+
+    return code
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(f"Usage: python3 {sys.argv[0]} <XML_PATH>")
         exit(1)
-    schema = parse_xml_schema(sys.argv[1])
+    schema_path = sys.argv[1]
+    schema = parse_xml_schema(schema_path)
+
+    schema_name = schema_path[schema_path.index("/") + 1 : -4]
 
     print("Generating Rust code for schema:")
     print(json.dumps(schema, indent=4))
 
     rust_code = generate_rust_code_for_schema(schema)
-
     with open(f"src/lib.rs", "w") as f:
         f.write(rust_code)
+
+    rust_code_main = generate_rust_code_main_for_schema(schema, schema_name)
+    with open(f"src/main.rs", "w") as f:
+        f.write(rust_code_main)
+
+    python_tests_code = generate_python_tests_for_schema(schema, schema_name)
+    with open(f"tests/test_xparse.py", "w") as f:
+        f.write(python_tests_code)
