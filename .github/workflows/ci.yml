@@ -29,16 +29,10 @@ jobs:
         shell: bash
 
       - name: Generate Rust code 1
-        run: |
-          . venv/bin/activate
-          python3 main.py example_schemas/school.xml
-        shell: bash
-      
+        run: python3 main.py example_schemas/school.xml
+
       - name: Run Rust tests 1
-        run: |
-          . venv/bin/activate
-          cargo test --verbose
-        shell: bash
+        run: cargo test --verbose
 
       - name: Generate example output 1
         run: cargo run --verbose
@@ -56,11 +50,8 @@ jobs:
         shell: bash
 
       - name: Generate Rust code 2
-        run: |
-          . venv/bin/activate
-          python3 main.py example_schemas/trading.xml
-        shell: bash
-      
+        run: python3 main.py example_schemas/trading.xml
+
       - name: Run Rust tests 2
         run: cargo test --verbose
 
