@@ -9,23 +9,30 @@ on:
 jobs:
   build-and-test:
     runs-on: self-hosted
-
     container:
       image: rust:latest
 
     steps:
       - uses: actions/checkout@v2
     
-      - name: Install Python
+      - name: Set up Python environment
         run: |
           apt-get update
-          apt-get install -y python3 python3-pip python3-venv
+          apt-get install -y python3-venv
           python3 -m venv venv
-          source venv/bin/activate
+        shell: bash
+    
+      - name: Install Python dependencies
+        run: |
+          . venv/bin/activate
           pip install maturin pytest
+        shell: bash
 
       - name: Generate Rust code 1
-        run: python3 main.py example_schemas/school.xml
+        run: |
+          . venv/bin/activate
+          python3 main.py example_schemas/school.xml
+        shell: bash
       
       - name: Run Rust tests 1
         run: cargo test --verbose
@@ -34,13 +41,22 @@ jobs:
         run: cargo run --verbose
       
       - name: Generate Python bindings 1
-        run: maturin develop
+        run: |
+          . venv/bin/activate
+          maturin develop
+        shell: bash
 
       - name: Run Python tests 1
-        run: pytest
+        run: |
+          . venv/bin/activate
+          pytest
+        shell: bash
 
       - name: Generate Rust code 2
-        run: python3 main.py example_schemas/trading.xml
+        run: |
+          . venv/bin/activate
+          python3 main.py example_schemas/trading.xml
+        shell: bash
       
       - name: Run Rust tests 2
         run: cargo test --verbose
@@ -49,7 +65,13 @@ jobs:
         run: cargo run --verbose
       
       - name: Generate Python bindings 2
-        run: maturin develop
+        run: |
+          . venv/bin/activate
+          maturin develop
+        shell: bash
 
       - name: Run Python tests 2
-        run: pytest
+        run: |
+          . venv/bin/activate
+          pytest
+        shell: bash
