@@ -3,6 +3,9 @@ import json
 import sys
 
 HEADER_AND_UTIL_CODE = r"""use arrayref::array_ref;
+use pyo3::prelude::*;
+use pyo3::exceptions::PyValueError;
+use pyo3::types::PyBytes;
 
 pub fn string_to_char_array<const N: usize>(s: &str) -> Result<[char; N], &'static str> {
     if s.len() > N {
@@ -59,6 +62,39 @@ impl Header {
     }
 }
 
+#[pyclass]
+struct PyMessage {
+    message: Message,
+}
+
+#[pymethods]
+impl PyMessage {
+    #[new]
+    fn new(buffer: Vec<u8>) -> PyResult<Self> {
+        match Message::deserialize(&buffer) {
+            Ok(message) => Ok(PyMessage { message }),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        self.message.serialize()
+    }
+
+    #[staticmethod]
+    fn from_bytes(buffer: Vec<u8>) -> PyResult<PyMessage> {
+        match Message::deserialize(&buffer) {
+            Ok(message) => Ok(PyMessage { message }),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }
+    }
+}
+
+#[pymodule]
+fn xparse(py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<PyMessage>()?;
+    Ok(())
+}
 """
 
 
