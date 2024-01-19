@@ -4,3 +4,6 @@ venv/
 runner/
 .DS_Store
 state.txt
+*.xb
+src/
+tests/
