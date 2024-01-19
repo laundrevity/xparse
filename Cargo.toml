@@ -3,5 +3,12 @@ name = "xparse"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 arrayref = "0.3.7"
+
+[dependencies.pyo3]
+version = "0.20.0"
+features = ["abi3-py38"]
