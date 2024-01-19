@@ -20,7 +20,9 @@ jobs:
         run: |
           apt-get update
           apt-get install -y python3 python3-pip python3-venv
-          pip3 install maturin pytest
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install maturin pytest
 
       - name: Generate Rust code 1
         run: python3 main.py example_schemas/school.xml
