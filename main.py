@@ -734,7 +734,7 @@ if __name__ == "__main__":
 
     schema_name = schema_path[schema_path.index("/") + 1 : -4]
 
-    print_with_emoji(f"Generating code for {schema_path} ...", "blue", "🧬")
+    print_with_emoji(f"Generating code for {schema_path} ...", "cyan", "🧬")
 
     print_with_emoji("Wiping src/ directory ...", "red", "🧹")
     wipe_dir("src")
@@ -776,15 +776,15 @@ if __name__ == "__main__":
         exit(1)
 
     print_with_emoji("Setting up clean venv ...", "yellow", "🧼")
-    wipe_dir(".venv")
-    res = subprocess.run(["python3", "-m", "venv", ".venv"], capture_output=True)
+    wipe_dir("venv")
+    res = subprocess.run(["python3", "-m", "venv", "venv"], capture_output=True)
     if res.returncode:
         print_error(
             f"Error setting up fresh venv: {res.stdout.decode() if res.stdout.decode() else ''}\n{res.stderr.decode()}\n\n"
         )
         exit(1)
     res = subprocess.run(
-        [f"{os.getcwd()}/.venv/bin/pip", "install", "-r", "requirements.txt"],
+        [f"{os.getcwd()}/venv/bin/pip", "install", "-r", "requirements.txt"],
         capture_output=True,
     )
     if res.returncode:
@@ -793,9 +793,9 @@ if __name__ == "__main__":
         )
         exit(1)
 
-    print_with_emoji("Installing Python extension module...", "blue", "📦")
+    print_with_emoji("Installing Python extension module...", "light_red", "📦")
     res = subprocess.run(
-        [f"{os.getcwd()}/.venv/bin/maturin", "develop"], capture_output=True
+        [f"{os.getcwd()}/venv/bin/maturin", "develop"], capture_output=True
     )
     if res.returncode:
         print_error(
@@ -805,7 +805,7 @@ if __name__ == "__main__":
 
     print_with_emoji("Running Python tests...", "magenta", "🧪")
     res = subprocess.run(
-        f"{os.getcwd()}/.venv/bin/pytest -v", capture_output=True, shell=True
+        f"{os.getcwd()}/venv/bin/pytest -v", capture_output=True, shell=True
     )
     if res.returncode:
         print_error(
@@ -814,7 +814,7 @@ if __name__ == "__main__":
         exit(1)
 
     print_with_emoji(
-        "Success! Generated Rust structs in `src/lib.rs` and installed Python module in `.venv`.",
+        "Success! Generated Rust structs in `src/lib.rs` and installed Python module in `venv`.",
         "green",
         "✅",
     )
