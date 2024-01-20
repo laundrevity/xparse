@@ -9,8 +9,8 @@ on:
 jobs:
   build-and-test:
     runs-on: self-hosted
-    container:
-      image: rust:latest
+    # container:
+      # image: rust:latest
 
     steps:
       - uses: actions/checkout@v2
