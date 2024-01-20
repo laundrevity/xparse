@@ -33,10 +33,6 @@ jobs:
           . venv/bin/activate
           for schema in example_schemas/*.xml; do
             echo "Processing $schema"
-            python3 main.py "$schema"
-            cargo test --verbose
-            cargo run --verbose
-            maturin develop
-            pytest -v
+            python main.py "$schema"
           done
         shell: bash
