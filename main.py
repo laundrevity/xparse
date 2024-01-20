@@ -1,4 +1,6 @@
+from termcolor import colored, cprint
 import xml.etree.ElementTree as ET
+import subprocess
 import shutil
 import json
 import sys
@@ -1464,6 +1466,15 @@ def wipe_dir(dir_path: str):
     os.makedirs(dir_path)
 
 
+def print_with_emoji(message, color="white", emoji=""):
+    colored_message = colored(f"{emoji} {message}", color)
+    print(colored_message)
+
+
+def print_error(message):
+    cprint(message, "red", attrs=["bold"], file=sys.stderr)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(f"Usage: python3 {sys.argv[0]} <XML_PATH>")
@@ -1473,19 +1484,19 @@ if __name__ == "__main__":
 
     schema_name = schema_path[schema_path.index("/") + 1 : -4]
 
-    print(f"Generating code for {schema_path}...")
+    print_with_emoji(f"Generating code for {schema_path}...", "blue", "🔧")
     # print(json.dumps(schema, indent=4))
 
-    print(f"Wiping src/ directory...")
+    print_with_emoji("Wiping src/ directory...", "red", "🧹")
     wipe_dir("src")
 
-    print(f"Generating Rust code [src/lib.rs]...")
+    print_with_emoji("Generating Rust code [src/lib.rs]...", "green", "🦀")
     rust_code = generate_rust_code_for_schema(schema)
     with open(f"src/lib.rs", "w") as f:
         f.write(rust_code)
 
     rust_code_main = generate_rust_code_main_for_schema(schema, schema_name)
-    print(f"Generating Rust code [src/main.rs]...")
+    print_with_emoji("Generating Rust code [src/main.rs]...", "green", "🦀")
     with open(f"src/main.rs", "w") as f:
         f.write(rust_code_main)
 
@@ -1496,3 +1507,40 @@ if __name__ == "__main__":
     python_tests_code = generate_python_tests_for_schema(schema, schema_name)
     with open(f"tests/test_xparse.py", "w") as f:
         f.write(python_tests_code)
+
+    print_with_emoji("Running Rust tests...", "magenta", "▶️")
+    res = subprocess.run(["cargo", "test", "-v"])
+    if res.returncode:
+        print_error(f"Got non-zero returncode running Rust tests!")
+        exit(1)
+
+    print_with_emoji("Running Rust binary to generate .xb files...", "magenta", "▶️")
+    res = subprocess.run(["cargo", "run", "-v"])
+    if res.returncode:
+        print_error(f"Got non-zero returncode running Rust binary!")
+        exit(1)
+
+    print_with_emoji("Setting up fresh venv...", "yellow", "🛠️")
+    wipe_dir("venv")
+    res = subprocess.run(["python3", "-m", "venv", "venv"])
+    if res.returncode:
+        print_error("Error setting up fresh venv!")
+        exit(1)
+    res = subprocess.run(
+        [f"{os.getcwd()}/venv/bin/pip", "install", "-r", "requirements.txt"]
+    )
+    if res.returncode:
+        print_error("Error installing requirements.txt to venv!")
+        exit(1)
+
+    print_with_emoji("Installing Python extension module...", "blue", "📦")
+    res = subprocess.run([f"{os.getcwd()}/venv/bin/maturin", "develop"])
+    if res.returncode:
+        print_error(f"Error installing Python extension module!")
+        exit(1)
+
+    print_with_emoji("Running Python tests...", "magenta", "▶️")
+    res = subprocess.run([f"{os.getcwd()}/venv/bin/pytest", "-v"])
+    if res.returncode:
+        print_error(f"Error running Python tests!")
+        exit(1)
