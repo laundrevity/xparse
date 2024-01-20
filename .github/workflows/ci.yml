@@ -18,11 +18,11 @@ jobs:
       - name: Set up Python environment
         run: |
           apt-get update
-          apt-get install -y python3-venv python3-dev
+          apt-get install -y python3-venv python3-dev python3-pip
         shell: bash
     
       - name: Install Python dependencies
-        run: pip3 install termcolor
+        run: pip install termcolor
         shell: bash
 
       - name: Process example schemas
