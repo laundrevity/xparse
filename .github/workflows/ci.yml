@@ -23,16 +23,13 @@ jobs:
         shell: bash
     
       - name: Install Python dependencies
-        run: |
-          . venv/bin/activate
-          pip install termcolor
+        run: pip install termcolor
         shell: bash
 
       - name: Process example schemas
         run: |
-          . venv/bin/activate
           for schema in example_schemas/*.xml; do
             echo "Processing $schema"
-            python main.py "$schema"
+            python3 main.py "$schema"
           done
         shell: bash
