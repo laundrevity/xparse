@@ -1,0 +1,49 @@
+<data>
+    <enumTypes>
+        <enumType name="side">
+            <enumValue name="buy" value="1"/>
+            <enumValue name="sell" value="2"/>
+        </enumType>
+        <enumType name="instrument_type">
+            <enumValue name="Stock" value="1"/>
+            <enumValue name="Spot" value="2"/>
+            <enumValue name="Future" value="3"/>
+            <enumValue name="Option" value="4"/>
+        </enumType>
+        <enumType name="status">
+            <enumValue name="listed" value="1"/>
+            <enumValue name="expired" value="2"/>
+        </enumType>
+    </enumTypes>
+    <dataTypes>
+        <dataType name="instrument">
+            <attribute name="instrument_id" type="uint" length="8" required="true"/>
+            <attribute name="symbol" type="str" length="20" required="true"/>
+            <attribute name="point_value" type="float" length="4" required="false"/>
+            <attribute name="tick_size" type="float" length="8" required="false"/>
+            <attribute name="inverted" type="bool" required="false"/>
+        </dataType>
+    </dataTypes>
+    <messageFormats>
+        <messageFormat id="1" name="order">
+            <attribute name="order_id" type="uint" length="8" required="true"/>
+            <attribute name="price" type="float" length="8" required="true"/>
+            <attribute name="account_id" type="uint" length="4" required="false"/>
+            <attribute name="quantity" type="uint" length="8" required="true"/>
+            <attribute name="order_side" type="side" required="true"/>
+            <attribute name="instrument_id" type="uint" length="8" required="true"/>
+            <attribute name="symbol" type="str" length="20" required="false"/>
+        </messageFormat>
+        <messageFormat id="2" name="position">
+            <attribute name="quantity" type="int" length="8" required="true"/>
+            <attribute name="account_id" type="uint" length="4" required="true"/>
+            <attribute name="timestamp" type="u32" required="false"/>
+            <attribute name="instrument_id" type="u32" required="true"/>
+            <attribute name="instrument" type="instrument" required="false"/>
+        </messageFormat>
+        <messageFormat id="3" name="instrument_status">
+            <attribute name="instrument" type="instrument" required="true"/>
+            <attribute name="instrument_status" type="status" required="true"/>
+        </messageFormat>
+    </messageFormats>
+</data>
